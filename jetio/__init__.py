@@ -19,7 +19,7 @@ re-exporting key components from various modules to provide a simple
 and unified public API for developers.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # --- External Dependencies ---
 from pydantic import ValidationError
@@ -27,7 +27,7 @@ from starlette.datastructures import UploadFile
 
 # --- Core Configuration & Framework ---
 from .config import settings
-from .framework import BaseMiddleware, Jetio, JsonResponse, Request, Response
+from .framework import BaseMiddleware, Depends, Jetio, JsonResponse, Request, Response
 
 # --- Middleware & Components ---
 from .middleware import CORSMiddleware
@@ -54,6 +54,7 @@ __all__ = [
     "Response",
     "JsonResponse",
     "BaseMiddleware",
+    "Depends",
     "UploadFile",
     "CORSMiddleware",
     "settings",
