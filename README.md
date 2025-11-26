@@ -127,7 +127,7 @@ The CrudRouter is a powerful tool that allows you to cleanly declare your API's 
 Jetio relationship prevents N+1 Query - Built-in relationship loading using SQLAlchemy's selectinload() prevents performance bottlenecks automatically.
 
 ### One-to-many Relationship
-```
+```python
 # app.py
 from jetio import Jetio, CrudRouter, JetioModel, add_swagger_ui, Base, engine
 from sqlalchemy import ForeignKey
