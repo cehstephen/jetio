@@ -153,7 +153,7 @@ class Book(JetioModel):
     author: Mapped["Author"] = relationship(back_populates="books")
 #===========================================
 # end of models
-= =========================================
+# =========================================
 
 app = Jetio()
 add_swagger_ui(app)
