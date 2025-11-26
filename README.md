@@ -123,6 +123,55 @@ if __name__ == "__main__":
 
 The CrudRouter is a powerful tool that allows you to cleanly declare your API's functionality, saving you from writing hundreds of lines of boilerplate code.
 
+## Relationship
+Jetio relationship prevents N+1 Query - Built-in relationship loading using SQLAlchemy's selectinload() prevents performance bottlenecks automatically.
+
+### One-to-many Relationship
+```
+# app.py
+from jetio import Jetio, CrudRouter, JetioModel, add_swagger_ui, Base, engine
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import List
+import asyncio
+
+#===================================================================
+# Models - you can have this in a separate file, however you desire.
+#===================================================================
+class Author(JetioModel):
+    __tablename__ = 'authors'
+    name: Mapped[str]
+    email: Mapped[str]
+    books: Mapped[List["Book"]] = relationship(back_populates="author", cascade="all, delete-orphan")
+
+
+class Book(JetioModel):
+    __tablename__ = 'books'
+    title: Mapped[str]
+    isbn: Mapped[str]
+    author_id: Mapped[int] = mapped_column(ForeignKey("authors.id"))
+    author: Mapped["Author"] = relationship(back_populates="books")
+#===========================================
+# end of models
+= =========================================
+
+app = Jetio()
+add_swagger_ui(app)
+
+CrudRouter(model=Author, load_relationships=["books"]).register_routes(app)
+CrudRouter(model=Book, load_relationships=["author"]).register_routes(app)
+
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("✅ Database initialized")
+
+if __name__ == "__main__":
+    asyncio.run(init_db())
+    print("🚀 Server running at http://localhost:8000")
+    print("📚 API docs at http://localhost:8000/docs")
+    app.run()
+```
 
 ## Our Philosophy
 
