@@ -4,6 +4,7 @@
 
 [![PyPI version](https://badge.fury.io/py/jetio.svg)](https://badge.fury.io/py/jetio)
 [![Python versions](https://img.shields.io/pypi/pyversions/jetio.svg)](https://pypi.org/project/jetio/)
+[![Compatibility](https://img.shields.io/badge/ASGI-Compatible-green.svg)](https://img.shields.io/badge/ASGI-Compatible-green.svg)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 **Jetio** is a modern, high-performance Python web framework designed to transform your SQLAlchemy models directly into fully-featured, production-ready REST APIs with minimal code. Stop writing boilerplate and start building what matters.
