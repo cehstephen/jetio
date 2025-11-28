@@ -25,7 +25,21 @@
 - **Jetio Framework oneBenchmark Results:** [We compared Jetio speed with Flask & FastAPI](https://jetio.org/jetio_benchmark_report.html) See the result for yourself.
 ---
 
-## Example
+## Simple Hello Jetio app
+```python
+from jetio import Jetio
+app = Jetio()
+
+@app.route('/')
+async def hello():
+    return "Hello, Jetio!"
+
+if __name__ == '__main__':
+    app.run()
+
+```
+
+## Example - Using models in separate file
 ```python
 # model.py
 from sqlalchemy.orm import Mapped
@@ -40,7 +54,7 @@ class Minister(JetioModel):
     last_name: Mapped[str]
 ```
 
-### Get Jetio to make your app
+### Get Jetio to make your app with imported models
 ```python
 # app.py
 from jetio import Jetio, CrudRouter, add_swagger_ui
