@@ -39,6 +39,22 @@ if __name__ == '__main__':
 
 ```
 
+## Activating swagger-UI for Hello Jetio app
+```python
+from jetio import Jetio, add_swagger_ui # add the add_swagger_ui
+
+app = Jetio()
+add_swagger_ui(app) # generates the swagger-UI
+
+@app.route('/')
+async def hello():
+    return "Hello, Jetio!"
+
+if __name__ == '__main__':
+    app.run()
+
+```
+
 ## Example - Using models in separate file
 ```python
 # model.py
