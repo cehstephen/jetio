@@ -331,7 +331,7 @@ class Jetio:
                     if 'db' in dep_sig.parameters:
                         sub_dep_kwargs['db'] = db_session
 
-                    # NEW: pass path params if the dependency accepts them
+                    # Now supports path param - pass path params if the dependency accepts them
                     dep_params = dep_sig.parameters
 
                     accepts_kwargs = any(
