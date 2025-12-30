@@ -19,7 +19,7 @@ re-exporting key components from various modules to provide a simple
 and unified public API for developers.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # --- External Dependencies ---
 from pydantic import ValidationError
@@ -33,6 +33,8 @@ from .framework import BaseMiddleware, Depends, Jetio, JsonResponse, Request, Re
 from .middleware import CORSMiddleware
 from .openapi import add_swagger_ui
 from .crud import CrudRouter
+from .security import require_audit_field
+
 
 # --- Database & ORM ---
 from .orm import Base, JetioModel, SessionLocal, engine, relationship
@@ -70,4 +72,5 @@ __all__ = [
     "add_swagger_ui",
     "CrudRouter",
     "ValidationError",
+    "require_audit_field",
 ]
