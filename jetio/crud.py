@@ -3,13 +3,13 @@
 # Website: https://jetio.org
 #
 # Copyright (c) 2025 Stephen Burabari Tete. All Rights Reserved.
-# 
+#
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 #
 # Author:   Stephen Burabari Tete
 # Contact:  cehtete [at] gmail.com
-# LinkedIn: https://www.linkedin.com/in/tete-stephen/ 
+# LinkedIn: https://www.linkedin.com/in/tete-stephen/
 # ---------------------------------------------------------------------------
 
 """
@@ -20,9 +20,13 @@ generate a full set of Create, Read, Update, and Delete (CRUD) API
 endpoints for any given SQLAlchemy model that inherits from `JetioModel`.
 It supports relationship loading, method exclusion, and optional security
 via dependency injection.
+
+New:
+- `policy`: method-specific dependency overrides (e.g. PUT/DELETE = owner check)
+- shared audit-field resolution via `jetio.security.resolve_audit_field`
 """
 
-from typing import List, Optional, Any, Callable
+from typing import List, Optional, Any, Callable, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -30,40 +34,36 @@ from pydantic import BaseModel, create_model
 
 from .framework import JsonResponse, Response, Depends
 from .orm import JetioModel
+from .security import resolve_audit_field, DEFAULT_AUDIT_FIELDS
 
 
 class CrudRouter:
     """
     A class that takes a JetioModel and automatically generates async CRUD API routes for it.
-
-    This router inspects a `JetioModel` and its associated Pydantic schemas
-    to create standard RESTful endpoints. It can be secured by passing `secure=True`
-    and providing an `auth_dependency`.
     """
+
     def __init__(
-        self, 
-        model: JetioModel, 
-        load_relationships: Optional[List[str]] = None, 
+        self,
+        model: JetioModel,
+        load_relationships: Optional[List[str]] = None,
         exclude_methods: Optional[List[str]] = None,
         secure: bool = False,
-        auth_dependency: Optional[Callable] = None
+        auth_dependency: Optional[Callable] = None,
+        audit_fields: Optional[List[str]] = None,
+        policy: Optional[Dict[str, Callable]] = None,
     ):
         """
         Initializes the CrudRouter.
 
         Args:
             model: The `JetioModel` class to build CRUD routes for.
-            load_relationships: A list of relationship names to eager-load
-                on 'GET' requests to prevent N+1 query problems.
-            exclude_methods: A list of HTTP methods (e.g., ['DELETE', 'POST'])
-                to exclude from route generation.
-            secure: If True, all generated routes will be protected by the
-                `auth_dependency`.
-            auth_dependency: A dependency function (like `get_current_user`) that
-                provides the authenticated user. Required if `secure` is True.
-
-        Raises:
-            ValueError: If `secure` is True but no `auth_dependency` is provided.
+            load_relationships: Relationships to eager-load on GET requests.
+            exclude_methods: List of HTTP methods (e.g. ['DELETE']) to exclude.
+            secure: If True, routes will be protected by dependency injection.
+            auth_dependency: Base dependency (e.g. get_current_user). Used when secure=True.
+            audit_fields: Prioritized list of ownership/audit field names to auto-fill.
+            policy: Optional dict mapping HTTP methods -> dependency override.
+                    Example: {"PUT": owner_or_admin(...), "DELETE": owner_or_admin(...)}
         """
         self.model = model
         self.ReadSchema = model.__pydantic_read_model__
@@ -72,64 +72,94 @@ class CrudRouter:
         self.secure = secure
         self.auth_dependency = auth_dependency
 
-        if self.secure and not self.auth_dependency:
-            raise ValueError("When 'secure' is True, an 'auth_dependency' function must be provided.")
+        # Normalize policy keys to uppercase
+        self.policy: Dict[str, Callable] = {}
+        if policy:
+            for k, v in policy.items():
+                self.policy[str(k).upper()] = v
 
-        # Dynamic Pydantic Model Generation for Create/Update
-        # If secure, exclude '_id' fields to prevent manual foreign key manipulation.
-        base_create_schema = model.__pydantic_create_model__
-        
+        # If secure, require a base auth_dependency OR policy covering all enabled methods.
         if self.secure:
+            enabled_methods = set(["GET", "POST", "PUT", "DELETE"]) - set(self.exclude_methods)
+            covered_by_policy = enabled_methods.issubset(set(self.policy.keys()))
+            if not self.auth_dependency and not covered_by_policy:
+                raise ValueError(
+                    "When 'secure' is True, provide 'auth_dependency' or a 'policy' that covers "
+                    "all enabled methods (after exclude_methods)."
+                )
+
+        # Audit fields: developer override or framework defaults
+        self.audit_fields = audit_fields if audit_fields is not None else list(DEFAULT_AUDIT_FIELDS)
+
+        # Dynamic schema generation
+        base_create_schema = model.__pydantic_create_model__
+
+        if self.secure:
+            # Exclude only intended audit fields (auto-filled server-side).
             fields = {
                 name: (field.annotation, field.default)
                 for name, field in base_create_schema.model_fields.items()
-                if not name.endswith('_id')
+                if name not in self.audit_fields
             }
             self.CreateSchema = create_model(
-                f'{self.model.__name__}SecureCreate',
+                "%sSecureCreate" % self.model.__name__,
                 **fields,
-                __config__=base_create_schema.model_config
+                __config__=base_create_schema.model_config,
             )
         else:
             self.CreateSchema = base_create_schema
-        
+
         self.UpdateSchema = self.CreateSchema
+
+        # Resolve once for speed/consistency
+        self._audit_field = resolve_audit_field(self.model, self.audit_fields)
+
+    # --- Helpers ---
+
+    def _dep_for(self, method: str) -> Optional[Callable]:
+        """
+        Returns the dependency for a given HTTP method:
+        - if `policy` provides one, use it
+        - else fall back to `auth_dependency`
+        """
+        method = str(method).upper()
+        if method in self.policy:
+            return self.policy[method]
+        return self.auth_dependency
 
     # --- Internal CRUD Logic ---
 
     async def _get_all(self, db: AsyncSession) -> JsonResponse:
-        """Fetches all records of the model."""
         query = select(self.model)
         if self.load_relationships:
             options = [selectinload(getattr(self.model, rel)) for rel in self.load_relationships]
             query = query.options(*options)
-            
+
         result = await db.execute(query)
         items = result.unique().scalars().all()
-        data = [self.ReadSchema.model_validate(item, from_attributes=True).model_dump(mode='json') for item in items]
+        data = [
+            self.ReadSchema.model_validate(item, from_attributes=True).model_dump(mode="json")
+            for item in items
+        ]
         return JsonResponse(data)
 
     async def _create(self, data: BaseModel, db: AsyncSession, user: Optional[Any] = None) -> JetioModel:
-        """Creates a new record in the database."""
         item_data = data.model_dump()
-        
-        # Automatically assign ownership if user context is available
-        if user:
-            if hasattr(self.model, 'creator_id'):
-                item_data['creator_id'] = user.id
-            elif hasattr(self.model, 'author_id'):
-                item_data['author_id'] = user.id
-        
+
+        # Automatic ownership assignment (secure overwrite)
+        if user and self._audit_field:
+            item_data[self._audit_field] = user.id
+
         new_item = self.model(**item_data)
         db.add(new_item)
         await db.flush()
+
         new_item_id = new_item.id
         await db.commit()
-        
+
         return await self._get_one(new_item_id, db)
 
     async def _get_one(self, item_id: int, db: AsyncSession) -> Optional[JetioModel]:
-        """Fetches a single record by its ID."""
         query = select(self.model).where(self.model.id == item_id)
         if self.load_relationships:
             options = [selectinload(getattr(self.model, rel)) for rel in self.load_relationships]
@@ -139,22 +169,20 @@ class CrudRouter:
         return result.scalar_one_or_none()
 
     async def _update(self, item_id: int, data: BaseModel, db: AsyncSession) -> Optional[JetioModel]:
-        """Updates an existing record by its ID."""
         item = await db.get(self.model, item_id)
         if not item:
             return None
-        
+
         for key, value in data.model_dump(exclude_unset=True).items():
             setattr(item, key, value)
-        
+
         await db.commit()
         return await self._get_one(item_id, db)
-    
+
     async def _delete(self, item_id: int, db: AsyncSession) -> JsonResponse:
-        """Deletes a record by its ID."""
         item = await db.get(self.model, item_id)
         if not item:
-            return JsonResponse({"error": f"{self.model.__name__} not found"}, status_code=404)
+            return JsonResponse({"error": "%s not found" % self.model.__name__}, status_code=404)
         await db.delete(item)
         await db.commit()
         return Response(status_code=204)
@@ -162,14 +190,12 @@ class CrudRouter:
     # --- Route Registration Logic ---
 
     def register_routes(self, app, prefix: str = ""):
-        """
-        Generates and registers the CRUD routes with the main Jetio application.
-
-        Handlers are defined inside this method to capture `self` and ensure 
-        the correct dynamic Pydantic schemas are used for validation.
-        """
         model_name_plural = self.model.__tablename__
-        base_path = f"{prefix}/{model_name_plural}"
+
+        # Ensure exactly one leading slash, and correct joining with prefix
+        base_path = (prefix.rstrip("/") + "/" + model_name_plural).strip()
+        if not base_path.startswith("/"):
+            base_path = "/" + base_path
 
         # --- Public Handlers ---
 
@@ -183,46 +209,46 @@ class CrudRouter:
         async def get_one(item_id: int, db: AsyncSession):
             orm_item = await self._get_one(item_id, db)
             if not orm_item:
-                return JsonResponse({"error": f"{self.model.__name__} not found"}, status_code=404)
+                return JsonResponse({"error": "%s not found" % self.model.__name__}, status_code=404)
             return self.ReadSchema.model_validate(orm_item, from_attributes=True)
 
         async def update(item_id: int, data: self.UpdateSchema, db: AsyncSession):
             updated_item = await self._update(item_id, data, db)
             if not updated_item:
-                return JsonResponse({"error": f"{self.model.__name__} not found"}, status_code=404)
+                return JsonResponse({"error": "%s not found" % self.model.__name__}, status_code=404)
             return self.ReadSchema.model_validate(updated_item, from_attributes=True)
 
         async def delete(item_id: int, db: AsyncSession):
             return await self._delete(item_id, db)
 
-        # --- Secure Wrappers ---
+        # --- Secure Wrappers (policy-aware) ---
 
-        async def secure_get_all(db: AsyncSession, user: Any = Depends(self.auth_dependency)):
+        async def secure_get_all(db: AsyncSession, user: Any = Depends(self._dep_for("GET"))):
             if not user:
                 return JsonResponse({"error": "Authentication required"}, status_code=401)
             return await get_all(db)
 
-        async def secure_create(data: self.CreateSchema, db: AsyncSession, user: Any = Depends(self.auth_dependency)):
+        async def secure_create(data: self.CreateSchema, db: AsyncSession, user: Any = Depends(self._dep_for("POST"))):
             if not user:
                 return JsonResponse({"error": "Authentication required"}, status_code=401)
             return await create(data, db, user=user)
 
-        async def secure_get_one(item_id: int, db: AsyncSession, user: Any = Depends(self.auth_dependency)):
+        async def secure_get_one(item_id: int, db: AsyncSession, user: Any = Depends(self._dep_for("GET"))):
             if not user:
                 return JsonResponse({"error": "Authentication required"}, status_code=401)
             return await get_one(item_id, db)
 
-        async def secure_update(item_id: int, data: self.UpdateSchema, db: AsyncSession, user: Any = Depends(self.auth_dependency)):
+        async def secure_update(item_id: int, data: self.UpdateSchema, db: AsyncSession, user: Any = Depends(self._dep_for("PUT"))):
             if not user:
                 return JsonResponse({"error": "Authentication required"}, status_code=401)
             return await update(item_id, data, db)
 
-        async def secure_delete(item_id: int, db: AsyncSession, user: Any = Depends(self.auth_dependency)):
+        async def secure_delete(item_id: int, db: AsyncSession, user: Any = Depends(self._dep_for("DELETE"))):
             if not user:
                 return JsonResponse({"error": "Authentication required"}, status_code=401)
             return await delete(item_id, db)
 
-        # --- Select and Register Handlers ---
+        # --- Select Handlers ---
 
         get_all_handler = secure_get_all if self.secure else get_all
         create_handler = secure_create if self.secure else create
@@ -230,12 +256,16 @@ class CrudRouter:
         update_handler = secure_update if self.secure else update
         delete_handler = secure_delete if self.secure else delete
 
+        # --- Register Routes ---
         if "GET" not in self.exclude_methods:
-            app.route(base_path, methods=['GET'])(get_all_handler)
-            app.route(f"{base_path}/{{item_id:int}}", methods=['GET'])(get_one_handler)
+            app.route(base_path, methods=["GET"])(get_all_handler)
+            app.route("%s/{item_id:int}" % base_path, methods=["GET"])(get_one_handler)
+
         if "POST" not in self.exclude_methods:
-            app.route(base_path, methods=['POST'])(create_handler)
+            app.route(base_path, methods=["POST"])(create_handler)
+
         if "PUT" not in self.exclude_methods:
-            app.route(f"{base_path}/{{item_id:int}}", methods=['PUT'])(update_handler)
+            app.route("%s/{item_id:int}" % base_path, methods=["PUT"])(update_handler)
+
         if "DELETE" not in self.exclude_methods:
-            app.route(f"{base_path}/{{item_id:int}}", methods=['DELETE'])(delete_handler)
+            app.route("%s/{item_id:int}" % base_path, methods=["DELETE"])(delete_handler)
