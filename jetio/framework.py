@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from starlette.formparsers import MultiPartParser
 from starlette.datastructures import UploadFile, Headers
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .orm import SessionLocal, JetioModel
 
@@ -323,11 +324,39 @@ class Jetio:
                     dep_func = param.default.dependency
                     dep_sig = inspect.signature(dep_func)
                     sub_dep_kwargs = {}
+
+                    # Pass request/db if requested (existing behavior)
                     if 'request' in dep_sig.parameters:
                         sub_dep_kwargs['request'] = request
                     if 'db' in dep_sig.parameters:
                         sub_dep_kwargs['db'] = db_session
+
+                    # NEW: pass path params if the dependency accepts them
+                    dep_params = dep_sig.parameters
+
+                    accepts_kwargs = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in dep_params.values()
+                    )
+
+                    if accepts_kwargs:
+                        # If dependency has **kwargs, give it all path params
+                        sub_dep_kwargs.update(path_kwargs)
+                    else:
+                        # Otherwise only pass named matches (safe / backwards compatible)
+                        for k, v in path_kwargs.items():
+                            if k in dep_params:
+                                ann = dep_params[k].annotation
+                                if ann is not inspect._empty:
+                                    try:
+                                        sub_dep_kwargs[k] = ann(v)
+                                    except Exception:
+                                        sub_dep_kwargs[k] = v
+                                else:
+                                    sub_dep_kwargs[k] = v
+
                     handler_kwargs[name] = await dep_func(**sub_dep_kwargs)
+
 
             # --- Call the Handler ---
             if asyncio.iscoroutinefunction(handler):
@@ -344,8 +373,13 @@ class Jetio:
         # --- Exception Handling ---
         except HttpValidationError as e:
             response = JsonResponse({"detail": e.errors}, status_code=422)
+
+        except StarletteHTTPException as e:
+            response = JsonResponse({"detail": e.detail}, status_code=e.status_code)
+
         except AuthenticationError:
             response = JsonResponse({"error": "Authentication required"}, status_code=401)
+
         except FileNotFoundError:
             if 404 in self.error_handlers:
                 template = self.template_env.get_template(self.error_handlers[404])
@@ -353,6 +387,7 @@ class Jetio:
                 response = Response(html_content, status_code=404)
             else:
                 response = Response("<h1>404 Not Found</h1>", status_code=404)
+
         except MethodNotAllowedError:
             if 405 in self.error_handlers:
                 template = self.template_env.get_template(self.error_handlers[405])
@@ -360,6 +395,7 @@ class Jetio:
                 response = Response(html_content, status_code=405)
             else:
                 response = Response("<h1>405 Method Not Allowed</h1>", status_code=405)
+
         except Exception as e:
             log.exception(f"Unhandled exception on path {scope.get('path')}")
             if 500 in self.error_handlers:
@@ -368,6 +404,7 @@ class Jetio:
                 response = Response(html_content, status_code=500)
             else:
                 response = Response("<h1>500 Internal Server Error</h1>", status_code=500)
+
         finally:
             await db_session.close()
 
