@@ -64,8 +64,57 @@ from .security import resolve_audit_field, DEFAULT_AUDIT_FIELDS
 
 
 class CrudRouter:
-    """
-    A class that takes a JetioModel and automatically generates async CRUD API routes for it.
+    """Generate and register CRUD routes for a :class:`~jetio.orm.JetioModel`.
+
+    ``CrudRouter`` builds standard REST endpoints for a given model and attaches
+    them to a Jetio application via :meth:`register_routes`.
+
+    The router is designed to be **low-boilerplate** while still supporting:
+    relationship eager-loading, optional authentication/authorization, and
+    server-controlled audit/ownership fields.
+
+    Examples:
+        Basic usage:
+
+        ```python
+        app = Jetio()
+        CrudRouter(User).register_routes(app)
+        ```
+
+        Load relationships on GET routes:
+
+        ```python
+        CrudRouter(User, load_relationships=["posts", "profile"]).register_routes(app)
+        ```
+
+        Secure all routes with a single dependency:
+
+        ```python
+        CrudRouter(
+            User,
+            secure=True,
+            auth_dependency=get_current_user,
+        ).register_routes(app)
+        ```
+
+        Method-specific security (policy):
+
+        ```python
+        CrudRouter(
+            User,
+            secure=True,
+            policy={
+                "GET": get_current_user,
+                "POST": get_current_user,
+                "PUT": owner_or_admin,
+                "DELETE": owner_or_admin,
+            },
+        ).register_routes(app)
+        ```
+
+    See Also:
+        - :class:`~jetio.orm.JetioModel`
+        - :func:`~jetio.security.resolve_audit_field`
     """
 
     def __init__(
@@ -78,19 +127,42 @@ class CrudRouter:
         audit_fields: Optional[List[str]] = None,
         policy: Optional[Dict[str, Callable]] = None,
     ):
-        """
-        Initializes the CrudRouter.
+        """Create a CRUD router for a model.
 
         Args:
-            model: The `JetioModel` class to build CRUD routes for.
-            load_relationships: Relationships to eager-load on GET requests.
-            exclude_methods: List of HTTP methods (e.g. ['DELETE']) to exclude.
-            secure: If True, routes will be protected by dependency injection.
-            auth_dependency: Base dependency (e.g. get_current_user). Used when secure=True.
-            audit_fields: Prioritized list of ownership/audit field names to auto-fill.
-            policy: Optional dict mapping HTTP methods -> dependency override.
-                    Example: {"PUT": owner_or_admin(...), "DELETE": owner_or_admin(...)}
+            model:
+                A model class inheriting from :class:`~jetio.orm.JetioModel`.
+                The model must expose Pydantic schema attributes
+                (e.g. ``__pydantic_read_model__`` and ``__pydantic_create_model__``)
+                as expected by Jetio.
+            load_relationships:
+                Relationship attribute names to eager-load on GET routes using
+                SQLAlchemy ``selectinload``.
+            exclude_methods:
+                HTTP methods to skip, e.g. ``["DELETE"]`` or ``["POST", "PUT"]``.
+                Values are normalized to uppercase.
+            secure:
+                If ``True``, the registered routes will require authentication via
+                dependency injection.
+            auth_dependency:
+                Base dependency used when ``secure=True`` and no method-level
+                ``policy`` exists for a request method (e.g. ``get_current_user``).
+            audit_fields:
+                Ordered list of field names to treat as audit/ownership fields.
+                When secure, these fields are removed from the create schema and
+                set server-side to ``user.id`` for the resolved audit field.
+                Defaults to :data:`~jetio.security.DEFAULT_AUDIT_FIELDS`.
+            policy:
+                Optional mapping of HTTP method -> dependency callable.
+                This overrides ``auth_dependency`` on a per-method basis.
+                Example: ``{"PUT": owner_check, "DELETE": owner_check}``.
+
+        Raises:
+            ValueError:
+                If ``secure=True`` and neither ``auth_dependency`` is provided nor
+                the ``policy`` covers all enabled methods (after ``exclude_methods``).
         """
+
         self.model = model
         self.ReadSchema = model.__pydantic_read_model__
         self.load_relationships = load_relationships or []
