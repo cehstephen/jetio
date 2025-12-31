@@ -1,0 +1,32 @@
+site_name: Jetio
+repo_name: jetio
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_signature_annotations: true
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Your First Blog: guides/first-blog.md
+      - Authentication: guides/authentication.md
+      - CRUD: guides/crud.md
+
+  - Configuration:
+      - Database Setup: configuration/database.md
+      - Environment Variables: configuration/environment.md
+  - API Reference:
+      - Framework: reference/framework.md
+      - ORM: reference/orm.md
+      - CRUD: reference/crud.md
+      - OpenAPI: reference/openapi.md
+      - Auth: reference/auth.md
