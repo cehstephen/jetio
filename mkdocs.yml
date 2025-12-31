@@ -19,7 +19,7 @@ nav:
   - Guides:
       - Your First Blog: guides/first-blog.md
       - Authentication: guides/authentication.md
-      - CRUD: guides/crud.md
+      - CRUD Router: guides/crud.md
 
   - Configuration:
       - Database Setup: configuration/database.md
