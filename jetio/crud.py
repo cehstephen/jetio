@@ -13,17 +13,43 @@
 # ---------------------------------------------------------------------------
 
 """
+jetio.crud
+==========
+
 Automated CRUD route generation for Jetio models.
 
-This module provides a `CrudRouter` class that can be used to quickly
-generate a full set of Create, Read, Update, and Delete (CRUD) API
-endpoints for any given SQLAlchemy model that inherits from `JetioModel`.
-It supports relationship loading, method exclusion, and optional security
-via dependency injection.
+This module provides :class:`~jetio.crud.CrudRouter`, which generates a complete
+set of async Create/Read/Update/Delete endpoints for a SQLAlchemy model that
+inherits from :class:`~jetio.orm.JetioModel`.
 
-New:
-- `policy`: method-specific dependency overrides (e.g. PUT/DELETE = owner check)
-- shared audit-field resolution via `jetio.security.resolve_audit_field`
+Generated routes
+----------------
+By default, the router registers the following endpoints under
+``/{prefix}/{model.__tablename__}``:
+
+- ``GET    /resource``           List all items
+- ``POST   /resource``           Create an item
+- ``GET    /resource/{item_id}`` Retrieve a single item
+- ``PUT    /resource/{item_id}`` Update an item (partial updates supported)
+- ``DELETE /resource/{item_id}`` Delete an item
+
+Key features
+------------
+- **Relationship eager-loading** for GET routes via ``selectinload``.
+- **Method exclusion** (e.g. disable DELETE) via ``exclude_methods``.
+- **Optional security** via dependency injection (``secure=True``).
+- **Policy-based security** allowing method-specific dependencies
+  (e.g. PUT/DELETE ownership checks).
+- **Audit / ownership field auto-fill** when secure, using
+  :func:`~jetio.security.resolve_audit_field` and ``DEFAULT_AUDIT_FIELDS``.
+
+Notes
+-----
+- When ``secure=True``, create payloads automatically exclude audit/ownership
+  fields so clients cannot set them; the server sets the resolved field to
+  ``user.id``.
+- Error responses are returned as :class:`~jetio.framework.JsonResponse` with
+  appropriate HTTP status codes.
 """
 
 from typing import List, Optional, Any, Callable, Dict
