@@ -13,11 +13,26 @@
 # ---------------------------------------------------------------------------
 
 """
-The core of the Jetio web framework.
+jetio.framework
+===============
 
-This module contains the main `Jetio` application class, along with the `Request`
-and `Response` objects that form the foundation of the framework's HTTP handling.
-It provides routing, dependency injection, and basic request/response processing.
+Core primitives for the Jetio web framework.
+
+This module contains the main :class:`~jetio.framework.Jetio` application class,
+plus foundational HTTP types (:class:`~jetio.framework.Request`,
+:class:`~jetio.framework.Response`, :class:`~jetio.framework.JsonResponse`)
+and a lightweight dependency injection marker (:class:`~jetio.framework.Depends`).
+
+Jetio is an ASGI application:
+- Define routes with :meth:`~jetio.framework.Jetio.route`
+- Resolve dependencies via :class:`~jetio.framework.Depends`
+- Return either :class:`~jetio.framework.Response` (manual) or any JSON-serializable
+  object (auto-wrapped into :class:`~jetio.framework.JsonResponse`)
+
+Notes:
+- Request body parsing supports JSON and multipart form data.
+- A database session (SQLAlchemy :class:`~sqlalchemy.ext.asyncio.AsyncSession`) is
+  created per request and closed automatically.
 """
 
 import json
@@ -42,36 +57,62 @@ log = logging.getLogger(__name__)
 
 
 class Depends:
-    """
-    A marker class for dependency injection.
+    """Dependency injection marker for Jetio route handlers.
 
-    When used as a default value for a route handler parameter, the framework
-    will call the provided dependency function and inject its return value.
+    Use :class:`Depends` as a default value for a route handler parameter to
+    indicate that the framework should call the given dependency and inject its
+    return value.
 
-    Example:
-        async def get_current_user(request: Request) -> User:
+    Dependencies may declare any of the following parameters and Jetio will pass
+    them if available:
+    - ``request``: :class:`~jetio.framework.Request`
+    - ``db``: :class:`~sqlalchemy.ext.asyncio.AsyncSession`
+    - any path parameters **if** the dependency function accepts them (either via
+      named parameters or ``**kwargs``)
+
+    Examples:
+        A basic dependency:
+
+        ```python
+        async def get_current_user(request: Request):
             ...
+            return user
+        ```
 
-        @app.route('/profile')
-        async def profile(user: User = Depends(get_current_user)):
+        Inject it into a handler:
+
+        ```python
+        @app.route("/profile")
+        async def profile(user = Depends(get_current_user)):
             return {"username": user.username}
+        ```
+
+    Args:
+        dependency: The callable to resolve (sync or async).
     """
+
     def __init__(self, dependency: callable):
-        """
-        Args:
-            dependency: The callable (function or class) to be resolved.
-        """
         self.dependency = dependency
 
 
 class Request:
-    """
-    Represents an incoming HTTP request.
+    """"Incoming HTTP request wrapper.
 
-    It provides access to the request method, path, headers, cookies,
-    and body content (JSON, form data, etc.). An instance of this class
-    is passed to every route handler.
+    Provides convenient access to method, path, headers, cookies and body
+    parsing utilities.
+
+    Attributes:
+        method: HTTP method (e.g. ``"GET"``).
+        path: URL path adjusted for ``root_path`` when deployed under a sub-path.
+        headers: Parsed ASGI headers (:class:`starlette.datastructures.Headers`).
+        cookies: Parsed cookies (:class:`http.cookies.SimpleCookie`).
+        user: Optional user context (framework/userland can set this).
+
+    Notes:
+        - :meth:`json` is tolerant and returns ``{}`` on invalid JSON.
+        - :meth:`form` parses multipart form data via Starlette's parser.
     """
+
     def __init__(self, scope, receive):
         self._scope = scope
         self._receive = receive
@@ -93,7 +134,11 @@ class Request:
         self.user = None
 
     async def stream(self):
-        """Reads the incoming request body as a stream of bytes."""
+        """Yield request body chunks as bytes.
+
+        Returns:
+            An async iterator of ``bytes`` chunks.
+        """
         if self._stream_consumed:
             yield b''
             return
@@ -107,7 +152,7 @@ class Request:
         yield b''
 
     async def body(self) -> bytes:
-        """Reads the entire request body into a single bytes object."""
+        """Return the full request body as bytes (cached)."""
         if hasattr(self, '_body'):
             return self._body
         chunks = [chunk async for chunk in self.stream()]
@@ -115,7 +160,11 @@ class Request:
         return self._body
 
     async def json(self):
-        """Parses the request body as JSON."""
+        """Parse and return the request body as JSON (cached).
+
+        Returns:
+            dict: Parsed JSON object. Returns ``{}`` if empty or invalid.
+        """
         if self._json is None:
             body_bytes = await self.body()
             try:
@@ -125,7 +174,7 @@ class Request:
         return self._json
 
     async def form(self):
-        """Parses the request body as form data (multipart/form-data)."""
+        """Parse and return multipart form data (cached)."""
         if self._form is not None:
             return self._form
         parser = MultiPartParser(headers=self.headers, stream=self.stream())
@@ -134,11 +183,19 @@ class Request:
 
 
 class Response:
-    """
-    Represents an outgoing HTTP response.
+    """Outgoing HTTP response.
 
-    It encapsulates the response body, status code, and headers.
+    Args:
+        body: Response body (``str`` or ``bytes``).
+        status_code: HTTP status code.
+        content_type: MIME type for Content-Type header.
+        headers: Optional headers dict.
+
+    Notes:
+        - Strings are UTF-8 encoded automatically.
+        - Content-Length is set automatically.
     """
+
     def __init__(self, body='', status_code=200, content_type='text/html', headers=None):
         if isinstance(body, str):
             self.body = body.encode('utf-8')
@@ -161,12 +218,20 @@ class Response:
 
 
 class JsonResponse(Response):
-    """
-    A specialized Response class for sending JSON data.
+    """JSON response helper.
 
-    It automatically serializes Python objects (including Pydantic models)
-    to a JSON string and sets the Content-Type header to 'application/json'.
+    Serializes Python objects to JSON and sets ``Content-Type: application/json``.
+
+    Supports:
+    - Pydantic models (serialized via ``model_dump(mode="json")``)
+    - Jetio ORM models (:class:`~jetio.orm.JetioModel`) serialized via their
+      auto-generated read schema (``__pydantic_read_model__``)
+
+    Args:
+        data: Any JSON-serializable object.
+        status_code: HTTP status code (default 200).
     """
+
     def __init__(self, data, status_code=200, **kwargs):
         def pydantic_encoder(obj):
             if isinstance(obj, BaseModel):
@@ -200,18 +265,47 @@ class AuthenticationError(Exception):
     pass
 
 class HttpValidationError(Exception):
-    """Raised when Pydantic validation of request body fails."""
+    """Raised when request body validation fails.
+
+    This is thrown internally when Pydantic validation fails for a handler
+    parameter annotated with a Pydantic model. Jetio converts it to a 422 JSON
+    response in :meth:`Jetio.handle_request`.
+    """
+
     def __init__(self, errors):
         self.errors = errors
 
 
 class Jetio:
-    """
-    The main application class for the Jetio framework.
+    """Jetio application object (ASGI).
 
-    This class acts as the central hub for routing, middleware, and request handling.
-    It is an ASGI-compliant application.
+    ``Jetio`` registers routes, resolves dependencies, manages a per-request
+    database session, and returns ASGI responses.
+
+    Examples:
+        Minimal app:
+
+        ```python
+        app = Jetio()
+
+        @app.route("/")
+        async def home():
+            return {"hello": "world"}
+        ```
+
+        Run with Uvicorn:
+
+        ```python
+        if __name__ == "__main__":
+            app.run(host="127.0.0.1", port=8000)
+        ```
+
+    Attributes:
+        title: OpenAPI title (also used by Swagger UI).
+        version: OpenAPI version.
+        routes: Registered routes.
     """
+
     def __init__(self, title: str = "Jetio API", version: str = "1.0.0", template_folder='templates'):
         self.routes = []
         self.title = title
@@ -234,12 +328,20 @@ class Jetio:
         self.error_handlers[status_code] = template_name
 
     def route(self, path, methods=None):
-        """
-        A decorator to register a view function for a given URL path.
+        """Register a route handler.
+
         Args:
-            path: URL path string. Supports placeholders like `{user_id:int}`.
-            methods: List of allowed HTTP methods. Defaults to ['GET'].
+            path: URL path pattern. Supports placeholders like ``{user_id:int}``.
+            methods: Allowed HTTP methods. Defaults to ``["GET"]``.
+
+        Returns:
+            A decorator that registers the handler and returns it.
+
+        Notes:
+            The handler docstring's *first line* is used as the OpenAPI summary
+            in :func:`jetio.openapi.generate_openapi_schema`.
         """
+
         def wrapper(handler):
             self.routes.append(Route(path, handler, methods or ['GET']))
             return handler
@@ -291,10 +393,21 @@ class Jetio:
             await self.app(scope, receive, send)
 
     async def handle_request(self, scope, receive, send):
+        """Handle an incoming HTTP request.
+
+        Flow:
+        1) Create a per-request database session
+        2) Match a route by path + method
+        3) Resolve handler arguments (path params, Request, db session, Pydantic body)
+        4) Resolve dependencies declared via :class:`Depends`
+        5) Call the handler (async or sync)
+        6) Convert result to :class:`Response` / :class:`JsonResponse`
+        7) Handle exceptions and close the DB session
+
+        Returns:
+            None. Sends an ASGI response via ``send``.
         """
-        The core request handling logic.
-        Finds matching route, resolves dependencies, calls handler, and manages DB session.
-        """
+
         db_session = SessionLocal()
         try:
             request = Request(scope, receive)
@@ -411,10 +524,20 @@ class Jetio:
         await response(scope, receive, send)
 
     def find_handler(self, path, method):
+        """Find a matching handler for a path and HTTP method.
+
+        Args:
+            path: Request path (already adjusted for ``root_path``).
+            method: HTTP method (e.g. ``"GET"``).
+
+        Returns:
+            Tuple[callable, dict]: ``(handler, path_kwargs)``.
+
+        Raises:
+            FileNotFoundError: If no route matches the path.
+            MethodNotAllowedError: If path matches but method is not allowed.
         """
-        Finds a matching route handler for a given path and method.
-        Raises: FileNotFoundError, MethodNotAllowedError.
-        """
+
         path_found = False
         for route in self.routes:
             # Convert path format like "/users/{id:int}" to a regex
@@ -431,10 +554,16 @@ class Jetio:
         raise FileNotFoundError()
 
     def run(self, host='127.0.0.1', port=8000):
+        """Run the app with Uvicorn.
+
+        This rebuilds forward references for any registered Jetio models' Pydantic
+        schemas before starting.
+
+        Args:
+            host: Bind host.
+            port: Bind port.
         """
-        Runs the application using the Uvicorn server.
-        Resolves forward references in models before startup.
-        """
+
         # Import here to avoid circular dependency issues at module load time.
         from .orm import _model_registry
         for model in _model_registry:
@@ -448,6 +577,13 @@ class Jetio:
 
 
 class Route:
-    """Represents a single route in the application."""
+    """A registered application route.
+
+    Attributes:
+        path: Route path template (Jetio syntax, e.g. ``"/users/{id:int}"``).
+        handler: Callable invoked when the route matches.
+        methods: Allowed HTTP methods (e.g. ``["GET", "POST"]``).
+    """
+    
     def __init__(self, path, handler, methods):
         self.path, self.handler, self.methods = path, handler, methods

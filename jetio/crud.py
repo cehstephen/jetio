@@ -215,11 +215,19 @@ class CrudRouter:
     # --- Helpers ---
 
     def _dep_for(self, method: str) -> Optional[Callable]:
+        """Resolve the dependency callable for a given HTTP method.
+
+        Resolution order:
+        1) If a method exists in ``policy`` (case-insensitive), return it.
+        2) Otherwise return ``auth_dependency`` (may be ``None``).
+
+        Args:
+            method: HTTP method name (e.g. ``"GET"``).
+
+        Returns:
+            A dependency callable or ``None``.
         """
-        Returns the dependency for a given HTTP method:
-        - if `policy` provides one, use it
-        - else fall back to `auth_dependency`
-        """
+
         method = str(method).upper()
         if method in self.policy:
             return self.policy[method]
@@ -228,6 +236,17 @@ class CrudRouter:
     # --- Internal CRUD Logic ---
 
     async def _get_all(self, db: AsyncSession) -> JsonResponse:
+        """Return all rows for the model as JSON.
+
+        This method executes a ``SELECT`` query against the model table and,
+        if configured, eager-loads relationships via ``selectinload``.
+
+        Args:
+            db: SQLAlchemy async session.
+
+        Returns:
+            JsonResponse: A JSON array of serialized items.
+        """
         query = select(self.model)
         if self.load_relationships:
             options = [selectinload(getattr(self.model, rel)) for rel in self.load_relationships]
@@ -242,6 +261,19 @@ class CrudRouter:
         return JsonResponse(data)
 
     async def _create(self, data: BaseModel, db: AsyncSession, user: Optional[Any] = None) -> JetioModel:
+        """Create a new row from validated input.
+
+        When ``user`` is provided and an audit field is resolved, the audit field
+        is set to ``user.id`` regardless of client input.
+
+        Args:
+            data: Validated create payload (Pydantic model).
+            db: SQLAlchemy async session.
+            user: Authenticated principal (dependency result), if any.
+
+        Returns:
+            The newly created ORM item (re-fetched so relationship loading rules apply).
+        """
         item_data = data.model_dump()
 
         # Automatic ownership assignment (secure overwrite)
@@ -258,6 +290,15 @@ class CrudRouter:
         return await self._get_one(new_item_id, db)
 
     async def _get_one(self, item_id: int, db: AsyncSession) -> Optional[JetioModel]:
+        """Return a single row by primary key, or ``None`` if not found.
+
+        Args:
+            item_id: Primary key value.
+            db: SQLAlchemy async session.
+
+        Returns:
+            The ORM instance or ``None``.
+        """
         query = select(self.model).where(self.model.id == item_id)
         if self.load_relationships:
             options = [selectinload(getattr(self.model, rel)) for rel in self.load_relationships]
@@ -267,6 +308,18 @@ class CrudRouter:
         return result.scalar_one_or_none()
 
     async def _update(self, item_id: int, data: BaseModel, db: AsyncSession) -> Optional[JetioModel]:
+        """Update an existing row.
+
+        Only fields present in the payload are updated (``exclude_unset=True``).
+
+        Args:
+            item_id: Primary key value.
+            data: Validated update payload.
+            db: SQLAlchemy async session.
+
+        Returns:
+            Updated ORM instance, or ``None`` if the item does not exist.
+        """
         item = await db.get(self.model, item_id)
         if not item:
             return None
@@ -278,6 +331,16 @@ class CrudRouter:
         return await self._get_one(item_id, db)
 
     async def _delete(self, item_id: int, db: AsyncSession) -> JsonResponse:
+        """Delete a row by primary key.
+
+        Args:
+            item_id: Primary key value.
+            db: SQLAlchemy async session.
+
+        Returns:
+            - 204 Response on success
+            - 404 JsonResponse if not found
+        """
         item = await db.get(self.model, item_id)
         if not item:
             return JsonResponse({"error": "%s not found" % self.model.__name__}, status_code=404)
@@ -288,6 +351,35 @@ class CrudRouter:
     # --- Route Registration Logic ---
 
     def register_routes(self, app, prefix: str = ""):
+        """Register CRUD routes on a Jetio application.
+
+        The base path is computed as::
+
+            /{prefix}/{model.__tablename__}
+
+        where ``prefix`` is optional and normalized to avoid double slashes.
+
+        Routes registered (unless excluded):
+            - ``GET    {base}``
+            - ``POST   {base}``
+            - ``GET    {base}/{item_id:int}``
+            - ``PUT    {base}/{item_id:int}``
+            - ``DELETE {base}/{item_id:int}``
+
+        Security behavior:
+            - If ``secure=False`` (default), routes are public.
+            - If ``secure=True``, each handler uses dependency injection:
+              ``Depends(_dep_for(METHOD))``.
+            - If the resolved dependency returns a falsy value, the route returns
+              ``401 {"error": "Authentication required"}``.
+
+        Args:
+            app: Jetio application instance (must expose ``route(...)`` decorator).
+            prefix: Optional URL prefix (e.g. ``"/v1"``).
+
+        Returns:
+            None
+        """
         model_name_plural = self.model.__tablename__
 
         # Ensure exactly one leading slash, and correct joining with prefix

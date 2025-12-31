@@ -13,11 +13,20 @@
 # ---------------------------------------------------------------------------
 
 """
-OpenAPI (Swagger) schema generation for the Jetio framework.
+jetio.openapi
+=============
 
-This module provides functions to automatically generate an OpenAPI 3.0 schema
-from the routes and models defined in a Jetio application, enabling automatic
-interactive API documentation via Swagger UI.
+OpenAPI (Swagger) schema generation for Jetio.
+
+Jetio generates an OpenAPI 3.0 schema by inspecting:
+- registered routes (path + methods)
+- route handler signatures (path parameters, request body models)
+- return annotations (to infer response schemas)
+- handler docstrings (first line used as operation summary)
+
+Use :func:`add_swagger_ui` to mount:
+- ``/openapi.json``: schema document
+- ``/docs``: Swagger UI pointing to the schema
 """
 
 import inspect
@@ -32,7 +41,19 @@ from .orm import _model_registry
 
 
 def _generate_and_add_schema(model, schema_store):
-    """Generates a Pydantic model's JSON schema and adds it to the store."""
+    """Generate JSON schema for a Pydantic model and store it in components.
+
+    Args:
+        model: A Pydantic BaseModel subclass.
+        schema_store: Dict that becomes ``#/components/schemas``.
+
+    Returns:
+        Optional[str]: The schema name added/used, or ``None`` if not applicable.
+
+    Notes:
+        Pydantic v2 may emit nested ``$defs``. This function flattens those into
+        the main schema store for easier referencing.
+    """
     if not model or not inspect.isclass(model) or not issubclass(model, BaseModel):
         return None
         
@@ -53,11 +74,29 @@ def _generate_and_add_schema(model, schema_store):
 
 
 def generate_openapi_schema(app: Jetio):
-    """
-    Inspects the application's models and route signatures to create an OpenAPI schema.
+    """Generate an OpenAPI 3.0 schema for a Jetio application.
+
+    The generator inspects:
+    - all registered Jetio models (from the ORM registry) to pre-register schemas
+    - all routes and handler signatures to build the ``paths`` section
+
+    Path conversion:
+        Jetio allows typed path params like ``/users/{id:int}``.
+        OpenAPI uses ``/users/{id}``; Jetio types are removed for schema output.
+
+    Request bodies:
+        If a handler parameter is annotated with a Pydantic model, it is treated
+        as a JSON request body.
+
+    Responses:
+        If the handler has a return annotation, Jetio attempts to generate a
+        matching JSON schema for 200/201 responses.
+
+    Args:
+        app: Jetio application instance.
 
     Returns:
-        A dictionary representing the complete OpenAPI 3.0 specification.
+        dict: OpenAPI specification document.
     """
     schema = {
         "openapi": "3.0.0",
@@ -151,12 +190,22 @@ def generate_openapi_schema(app: Jetio):
 
 
 def add_swagger_ui(app):
+    """Mount Swagger UI and OpenAPI schema routes.
+
+    Adds:
+        - ``GET /docs``: Swagger UI HTML
+        - ``GET /openapi.json``: OpenAPI schema JSON
+
+    Notes:
+        Supports sub-path deployments (reverse proxies) by reading ASGI
+        ``root_path`` and setting:
+        - Swagger UI's schema URL
+        - ``servers`` field in the OpenAPI document
     """
-    Adds /docs and /openapi.json routes to the application.
-    """
+    
     @app.route('/docs')
     def swagger_ui(request: Request):
-        """Serves the Swagger UI HTML page."""
+        """Swagger UI page."""
         # Handle sub-directory deployments (e.g., behind reverse proxies)
         root_path = request._scope.get("root_path", "")
         openapi_url = f"{root_path}/openapi.json"
@@ -184,7 +233,7 @@ def add_swagger_ui(app):
 
     @app.route('/openapi.json')
     def openapi_spec(request: Request):
-        """Serves the auto-generated OpenAPI JSON schema."""
+        """OpenAPI schema JSON."""
         schema = generate_openapi_schema(app)
 
         # Inject server URL for correct execution behind proxies

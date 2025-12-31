@@ -13,12 +13,45 @@
 # ---------------------------------------------------------------------------
 
 """
-Object-Relational Mapping (ORM) utilities for the Jetio framework.
+jetio.orm
+=========
 
-This module handles the SQLAlchemy async engine setup and provides the
-`JetioModel` base class. It utilizes a metaclass to automatically generate
-Pydantic schemas (`CreateSchema` and `ReadSchema`) from model definitions,
-reducing boilerplate for API validation and serialization.
+Async SQLAlchemy integration and model utilities for Jetio.
+
+This module provides:
+- the SQLAlchemy async engine and session factory used by Jetio
+- a :class:`~jetio.orm.JetioModel` base class for declarative models
+- a :class:`~jetio.orm.ModelMetaclass` that auto-generates Pydantic schemas
+
+Auto-generated Pydantic schemas
+-------------------------------
+For every concrete model that inherits from :class:`~jetio.orm.JetioModel`,
+Jetio generates and attaches:
+
+- ``<ModelName>Read`` (``__pydantic_read_model__``):
+  Used for serializing ORM instances in API responses.
+
+- ``<ModelName>Create`` (``__pydantic_create_model__``):
+  Used for validating request bodies on create/update operations.
+
+Schema generation rules (high level)
+------------------------------------
+Read schema:
+- includes columns and "to-one" relationships
+- excludes private fields (names starting with ``_``)
+- excludes relationships that are collections (``List[...]``) to avoid recursion
+- respects ``API.exclude_from_read`` if defined on the model
+
+Create schema:
+- excludes server-managed fields (e.g. ``id``, timestamps, password hashes)
+- excludes relationships (foreign relationships are typically set via IDs/logic)
+- excludes fields that have a server-side default
+- required/optional is inferred from typing (``Optional[...]`` fields are optional)
+
+Notes:
+- Models are registered in ``_model_registry`` for OpenAPI generation.
+- Forward references and relationships are represented using read-schema names
+  (e.g. ``"UserRead"``) to keep schemas consistent and serializable.
 """
 
 import inspect
@@ -47,17 +80,46 @@ _model_registry = []  # Registry for OpenAPI generation.
 
 
 def relationship(*args, **kwargs) -> Relationship:
-    """Wrapper around SQLAlchemy's relationship for consistent API exposure."""
+    """Declare a SQLAlchemy relationship with Jetio's public API surface.
+
+    This is a thin wrapper around :func:`sqlalchemy.orm.relationship` so Jetio can
+    expose a consistent import path (``jetio.orm.relationship``) for applications.
+
+    Returns:
+        sqlalchemy.orm.Relationship: SQLAlchemy relationship descriptor.
+    """
+
     return sa_relationship(*args, **kwargs)
 
 
 class ModelMetaclass(type(Base)):
-    """
-    Metaclass that automatically generates Pydantic models from SQLAlchemy models.
+    """Metaclass that generates Pydantic schemas from SQLAlchemy model annotations.
 
-    It introspects columns and relationships to create:
-    - `ModelNameRead`: For serializing data (API responses).
-    - `ModelNameCreate`: For validating data (API request bodies).
+    Jetio uses a metaclass to reduce boilerplate for API validation and output
+    serialization. When you define a model by inheriting :class:`~jetio.orm.JetioModel`,
+    Jetio inspects the model's type annotations and generates two Pydantic models:
+
+    - ``<ModelName>Read``:
+      A schema suitable for API responses (serialization). Includes "to-one"
+      relationships and excludes relationship collections (``List[...]``).
+
+    - ``<ModelName>Create``:
+      A schema suitable for request validation (create/update). Excludes server-managed
+      fields, server defaults, and relationship fields.
+
+    Naming:
+        If ``__tablename__`` is not defined, Jetio uses a simple pluralization rule:
+        ``User`` -> ``users``.
+
+    Customization:
+        A model may define an inner ``API`` class with:
+
+        - ``exclude_from_read``: a list of attribute names to omit from the read schema.
+
+    Notes:
+        - Generated schemas are attached to both the module and the model class as:
+          ``__pydantic_read_model__`` and ``__pydantic_create_model__``.
+        - Each model class is added to ``_model_registry`` for OpenAPI generation.
     """
 
     def __new__(cls, name, bases, attrs):
@@ -84,13 +146,33 @@ class ModelMetaclass(type(Base)):
         exclude_from_read = getattr(api_config, 'exclude_from_read', [])
 
         def get_python_type_from_mapped(mapped_type):
-            """Extracts Python type from SQLAlchemy `Mapped` annotation."""
+            """Extract the declared Python type from a SQLAlchemy ``Mapped[T]`` annotation.
+
+            Args:
+                mapped_type: The annotation value from ``__annotations__``.
+
+            Returns:
+                The inner Python type ``T`` if the annotation is ``Mapped[T]``,
+                otherwise returns the original annotation.
+            """
+
             if get_origin(mapped_type) is Mapped:
                 return get_args(mapped_type)[0]
             return mapped_type
 
         def resolve_pydantic_type(typ):
-            """Resolves SQLAlchemy types to Pydantic-compatible types for schemas."""
+            """Resolve ORM/relationship types into Pydantic-friendly schema types.
+
+            This normalizes relationship targets into *read schema* names
+            (e.g. ``User`` -> ``"UserRead"``) and handles forward references.
+
+            Args:
+                typ: A type annotation (possibly ``Optional``, ``Union``, ``ForwardRef``).
+
+            Returns:
+                A type or schema-name string compatible with ``pydantic.create_model``.
+            """
+
             typ = get_python_type_from_mapped(typ)
             origin = get_origin(typ)
 
@@ -202,15 +284,42 @@ class ModelMetaclass(type(Base)):
 
 
 class JetioModel(Base, metaclass=ModelMetaclass):
-    """
-    The base model for all database tables in a Jetio application.
+    """Base class for Jetio SQLAlchemy models.
 
-    Inheritance enables automatic Pydantic schema generation for API
-    validation and serialization.
+    Inherit from ``JetioModel`` to get:
+    - a default integer primary key ``id``
+    - automatic table naming (if ``__tablename__`` is not provided)
+    - automatic generation of Pydantic schemas:
+      ``__pydantic_read_model__`` and ``__pydantic_create_model__``
+    - inclusion in Jetio's model registry for OpenAPI docs
+
+    Example:
+        ```python
+        class User(JetioModel):
+            username: Mapped[str] = mapped_column(unique=True)
+            email: Mapped[str]
+        ```
+
+    Customizing schema output:
+        ```python
+        class User(JetioModel):
+            class API:
+                exclude_from_read = ["hashed_password"]
+        ```
+
+    Notes:
+        Relationship collections (e.g. ``List[Post]``) are excluded from read schemas
+        by default to avoid heavy recursion and circular schemas.
     """
+
     __abstract__ = True
     id: Mapped[int] = mapped_column(primary_key=True)
 
     def to_dict(self):
-        """Serializes the model to a dictionary using the auto-generated Read schema."""
+        """Serialize this model instance using its auto-generated read schema.
+
+        Returns:
+            dict: JSON-compatible representation of the ORM object.
+        """
+        
         return self.__pydantic_read_model__.model_validate(self).model_dump()
