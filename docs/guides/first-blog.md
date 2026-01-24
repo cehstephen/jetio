@@ -143,7 +143,7 @@ For migrations and production setups, see Configuration → Database Setup.
 
     - API: http://localhost:8000
 
-    - Docs: http://localhost:8000/do
+    - Docs: http://localhost:8000/docs
 
 
 ## Using the API
