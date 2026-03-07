@@ -9,6 +9,11 @@
 
 **Jetio** is a modern, high-performance Python web framework designed to transform your SQLAlchemy models directly into fully-featured, production-ready REST APIs with minimal code. Stop writing boilerplate and start building what matters.
 
+## Instalation
+```
+pip install jetio
+```
+
 ---
 
 ## Key Features
