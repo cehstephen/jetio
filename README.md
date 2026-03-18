@@ -28,6 +28,7 @@ pip install jetio
 ---
 
 - **Visit Jetio Framework** [You can deliver more than 500 times faster with Jetio - see how it works.](https://jetio.org)
+- **GitHub Pages Documentation:** [Browse the Jetio docs on GitHub Pages](https://cehstephen.github.io/jetio/)
 - **Jetio Framework oneBenchmark Results:** [We compared Jetio speed with Flask & FastAPI](https://jetio.org/jetio_benchmark_report.html) See the result for yourself.
 ---
 
