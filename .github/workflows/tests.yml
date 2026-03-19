@@ -23,14 +23,13 @@ jobs:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: |
-            setup.cfg
-            setup.py
+            requirements.txt
 
       - name: Install dependencies
         run: |
           rm -rf build dist *.egg-info
           python -m pip install --upgrade pip
-          pip install -e .[test] pytest-cov
+          pip install -r requirements.txt
 
       - name: Run tests with coverage
         run: |
