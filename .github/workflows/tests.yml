@@ -31,12 +31,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Verify import
+        run: python -c "import jetio; print(jetio.__file__)"
+
       - name: Run tests with coverage
         run: |
-          pytest --cov=jetio/jetio --cov-report=term-missing --cov-report=xml
+          pytest --cov=jetio --cov-report=term-missing --cov-report=xml:./coverage.xml
+
+      - name: Verify coverage artifact
+        run: |
+          ls -la
+          test -f coverage.xml
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: coverage.xml
+          file: ./coverage.xml
