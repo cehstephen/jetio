@@ -57,3 +57,43 @@ async def test_preflight_disallowed_origin_has_no_allow_origin(cors_app):
 
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") is None
+
+
+async def test_wildcard_origin_allows_any_origin_and_default_headers():
+    app = Jetio()
+    app.add_middleware(CORSMiddleware)
+
+    @app.route("/ping")
+    async def ping(request: Request):
+        return {"ok": True}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.options(
+            "/ping",
+            headers={
+                "Origin": "http://random.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "*"
+    assert response.headers.get("access-control-allow-headers") == "Authorization, Content-Type"
+
+
+async def test_non_http_scope_passthrough_calls_wrapped_app():
+    called = {}
+
+    async def wrapped(scope, receive, send):
+        called["scope_type"] = scope["type"]
+
+    middleware = CORSMiddleware(wrapped)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(_message):
+        return None
+
+    await middleware({"type": "websocket"}, receive, send)
+    assert called["scope_type"] == "websocket"
