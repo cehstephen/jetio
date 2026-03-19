@@ -4,6 +4,7 @@
 
 [![PyPI version](https://badge.fury.io/py/jetio.svg)](https://badge.fury.io/py/jetio)
 [![Python versions](https://img.shields.io/pypi/pyversions/jetio.svg)](https://pypi.org/project/jetio/)
+[![Coverage Status](https://coveralls.io/repos/github/cehstephen/jetio/badge.svg?branch=main)](https://coveralls.io/github/cehstephen/jetio?branch=main)
 [![Compatibility](https://img.shields.io/badge/ASGI-Compatible-green.svg)](https://img.shields.io/badge/ASGI-Compatible-green.svg)
 ![Tests](https://github.com/cehstephen/jetio-auth/actions/workflows/tests.yml/badge.svg)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
