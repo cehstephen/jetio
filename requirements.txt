@@ -1,0 +1,15 @@
+sqlalchemy
+pydantic[email]
+pydantic-settings
+jinja2
+uvicorn[standard]
+starlette
+python-multipart
+passlib
+PyJWT
+jetio-auth
+aiosqlite
+pytest
+pytest-asyncio
+httpx
+pytest-cov

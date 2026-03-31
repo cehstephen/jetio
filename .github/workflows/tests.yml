@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+
+      - name: Install dependencies
+        run: |
+          rm -rf build dist *.egg-info
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify import
+        run: python -c "import jetio; print(jetio.__file__)"
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=jetio --cov-report=term-missing --cov-report=xml:./coverage.xml
+
+      - name: Verify coverage artifact
+        run: |
+          ls -la
+          test -f coverage.xml
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./coverage.xml

@@ -5,9 +5,16 @@
 [![PyPI version](https://badge.fury.io/py/jetio.svg)](https://badge.fury.io/py/jetio)
 [![Python versions](https://img.shields.io/pypi/pyversions/jetio.svg)](https://pypi.org/project/jetio/)
 [![Compatibility](https://img.shields.io/badge/ASGI-Compatible-green.svg)](https://img.shields.io/badge/ASGI-Compatible-green.svg)
+![Tests](https://github.com/cehstephen/jetio-auth/actions/workflows/tests.yml/badge.svg)
+[![Coverage Status](https://coveralls.io/repos/github/cehstephen/jetio/badge.svg?branch=main)](https://coveralls.io/github/cehstephen/jetio?branch=main)
 [![License](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 **Jetio** is a modern, high-performance Python web framework designed to transform your SQLAlchemy models directly into fully-featured, production-ready REST APIs with minimal code. Stop writing boilerplate and start building what matters.
+
+## Instalation
+```
+pip install jetio
+```
 
 ---
 
@@ -23,6 +30,7 @@
 ---
 
 - **Visit Jetio Framework** [You can deliver more than 500 times faster with Jetio - see how it works.](https://jetio.org)
+- **GitHub Pages Documentation:** [Browse the Jetio docs on GitHub Pages](https://cehstephen.github.io/jetio/)
 - **Jetio Framework oneBenchmark Results:** [We compared Jetio speed with Flask & FastAPI](https://jetio.org/jetio_benchmark_report.html) See the result for yourself.
 ---
 
