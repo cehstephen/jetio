@@ -19,7 +19,7 @@ re-exporting key components from various modules to provide a simple
 and unified public API for developers.
 """
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 # --- External Dependencies ---
 from pydantic import ValidationError
