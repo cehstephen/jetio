@@ -1,8 +1,8 @@
 import os
 import asyncio
 
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./example_basic_auth.db")
-os.environ.setdefault("DOMAIN", "http://127.0.0.1:8000")
+# os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./example_basic_auth.db")
+# os.environ.setdefault("DOMAIN", "http://127.0.0.1:8000")
 
 from jetio import Base, CrudRouter, Jetio, Request, SessionLocal, add_swagger_ui, engine
 from jetio.framework import Depends, JsonResponse
