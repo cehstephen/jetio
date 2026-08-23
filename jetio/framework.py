@@ -107,6 +107,11 @@ class Request:
         headers: Parsed ASGI headers (:class:`starlette.datastructures.Headers`).
         cookies: Parsed cookies (:class:`http.cookies.SimpleCookie`).
         user: Optional user context (framework/userland can set this).
+        client: ``(host, port)`` tuple of the connecting client, or ``None``
+            if the ASGI server didn't provide one. This is the direct TCP
+            peer -- behind a reverse proxy it's the proxy's address, not the
+            original client's; consult an ``X-Forwarded-For``-style header
+            for that instead.
 
     Notes:
         - :meth:`json` is tolerant and returns ``{}`` on invalid JSON.
@@ -132,6 +137,7 @@ class Request:
         self.headers = Headers(scope=scope)
         self.cookies = SimpleCookie(self.headers.get('cookie', ''))
         self.user = None
+        self.client = scope.get("client")
 
     async def stream(self):
         """Yield request body chunks as bytes.
@@ -274,6 +280,21 @@ class HttpValidationError(Exception):
 
     def __init__(self, errors):
         self.errors = errors
+
+
+def _print_startup_banner(host, port):
+    """Print the run() startup message, tolerating terminals that can't
+    encode the emoji.
+
+    Some terminals -- notably the default Windows console, which decodes
+    stdout as cp1252 unless ``PYTHONIOENCODING=utf-8`` is set -- raise
+    ``UnicodeEncodeError`` on the emoji, which would otherwise crash
+    :meth:`Jetio.run` before the server even starts.
+    """
+    try:
+        print(f"🚀 Jetio server running on http://{host}:{port}")
+    except UnicodeEncodeError:
+        print(f"Jetio server running on http://{host}:{port}")
 
 
 class Jetio:
@@ -488,7 +509,7 @@ class Jetio:
             response = JsonResponse({"detail": e.errors}, status_code=422)
 
         except StarletteHTTPException as e:
-            response = JsonResponse({"detail": e.detail}, status_code=e.status_code)
+            response = JsonResponse({"detail": e.detail}, status_code=e.status_code, headers=e.headers)
 
         except AuthenticationError:
             response = JsonResponse({"error": "Authentication required"}, status_code=401)
@@ -572,7 +593,7 @@ class Jetio:
             if hasattr(model, '__pydantic_create_model__'):
                 model.__pydantic_create_model__.model_rebuild()
 
-        print(f"🚀 Jetio server running on http://{host}:{port}")
+        _print_startup_banner(host, port)
         uvicorn.run(self, host=host, port=port)
 
 
