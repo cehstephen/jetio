@@ -142,7 +142,21 @@ class ModelMetaclass(type(Base)):
             all_annotations = {**getattr(base, '__annotations__', {}), **all_annotations}
 
         pydantic_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
-        api_config = attrs.get('API')
+
+        # Look up `class API` anywhere in the MRO, not just in this exact
+        # class's own namespace -- otherwise a mixin's
+        # `class API: exclude_from_read = [...]` (e.g. jetio-auth's
+        # JetioAuthMixin, which uses this to hide hashed_password) is
+        # silently ignored by any model that composes it in rather than
+        # defining API directly. cls.__mro__ starts with cls itself, so a
+        # model's own API still takes priority over an inherited one.
+        api_config = None
+        for base in cls.__mro__:
+            if base is Base:
+                break
+            if 'API' in base.__dict__:
+                api_config = base.__dict__['API']
+                break
         exclude_from_read = getattr(api_config, 'exclude_from_read', [])
 
         def get_python_type_from_mapped(mapped_type):
