@@ -9,6 +9,26 @@ and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0
 
 ---
 
+Version 1.2.3
+========================
+
+Bug Fixes
+---------
+
+*   **`HTTPException` headers are no longer dropped**:
+    Raising `starlette.exceptions.HTTPException(status_code, detail, headers={...})` previously lost the `headers` on the way to the response -- only `.detail`/`.status_code` were used. Any code relying on custom headers on an error response (e.g. `Retry-After` on a 429 from a rate limiter) now gets them.
+
+*   **`Request.client` is now public**:
+    `Request` previously exposed no supported way to read the connecting client's address. `Request.client` is now a documented public attribute -- a `(host, port)` tuple, or `None` if the ASGI server didn't provide one.
+
+*   **`run()` no longer crashes on terminals that can't encode its startup message**:
+    The default Windows console (which decodes stdout as `cp1252` unless `PYTHONIOENCODING=utf-8` is set) previously crashed with `UnicodeEncodeError` on the emoji in the startup banner, before the server ever started listening. It now falls back to a plain-text message.
+
+*   **`class API` configuration is now found on parent classes, not just the model itself**:
+    `class API: exclude_from_read = [...]` defined on a mixin (rather than the model class directly) was previously silently ignored, since the lookup only checked the model's own class body. This is security-relevant: it's the mechanism `jetio-auth`'s `JetioAuthMixin` uses to keep `hashed_password` out of API responses, and it wasn't working for that exact case. The lookup now walks the MRO, so a mixin-defined `API` is respected -- while a model's own `class API` still takes priority if both are present.
+
+---
+
 Version 1.1.0
 ========================
 
