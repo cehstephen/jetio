@@ -1728,6 +1728,20 @@ parsing utilities.</p>
               </div>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="jetio.framework.Request.client">client</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(host, port)</code> tuple of the connecting client, or <code>None</code>
+if the ASGI server didn't provide one. This is the direct TCP
+peer -- behind a reverse proxy it's the proxy's address, not the
+original client's; consult an <code>X-Forwarded-For</code>-style header
+for that instead.</p>
+              </div>
+            </td>
+          </tr>
       </tbody>
     </table>
 
