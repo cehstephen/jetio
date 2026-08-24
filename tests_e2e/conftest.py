@@ -100,3 +100,10 @@ def audit_app_default_console_encoding(tmp_path):
     process, base_url = run_scenario_app(tmp_path, "audit_scenario_app.py", force_utf8_stdout=False)
     yield base_url
     stop_scenario_app(process)
+
+
+@pytest.fixture
+def blog_app(tmp_path):
+    process, base_url = run_scenario_app(tmp_path, "secure_blog_scenario_app.py")
+    yield base_url
+    stop_scenario_app(process)
