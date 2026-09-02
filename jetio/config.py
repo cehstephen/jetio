@@ -21,6 +21,8 @@ approach provides a robust and type-safe way to handle configuration.
 """
 
 from pathlib import Path
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Determine the project root directory relative to this file
@@ -38,10 +40,20 @@ class Settings(BaseSettings):
         DATABASE_URL: The connection string for the application's database.
                       Defaults to an async SQLite database in the local directory.
         SECRET_KEY: A secret key for cryptographic signing (e.g., for JWTs).
-                    It is crucial to override the default value in production.
+                    No default -- a fixed value shipped in this package's
+                    own published source would be public, not secret:
+                    anyone could forge a valid JWT for any user, including
+                    an admin, with zero credentials. Optional here (apps
+                    that never call create_access_token()/
+                    decode_access_token() don't need it, and settings is
+                    imported unconditionally by the whole package) --
+                    jetio.auth raises a clear error the first time either
+                    of those is actually called without one configured.
+                    Set it via the SECRET_KEY environment variable or a
+                    .env file, e.g. `openssl rand -hex 32`.
     """
     DATABASE_URL: str = "sqlite+aiosqlite:///./jetio.db" # Async driver
-    SECRET_KEY: str = "93484b3f30255037987621c862444762931e02650e1827788269908762789075"
+    SECRET_KEY: Optional[str] = None
     DOMAIN: str = "http://127.0.0.1:8000"
 
     # Mail Configuration

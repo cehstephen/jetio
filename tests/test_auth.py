@@ -1,5 +1,28 @@
 from datetime import timedelta
+
+import pytest
+
 from jetio.auth import get_password_hash, verify_password, create_access_token, decode_access_token
+from jetio.config import settings
+
+
+@pytest.fixture
+def no_secret_key(monkeypatch):
+    """Simulates an app that never configured SECRET_KEY -- see GH issue #9."""
+    monkeypatch.setattr(settings, "SECRET_KEY", None)
+
+
+def test_create_access_token_without_a_secret_key_raises_clearly(no_secret_key):
+    with pytest.raises(RuntimeError, match="SECRET_KEY is not set"):
+        create_access_token({"sub": "x"})
+
+
+def test_decode_access_token_without_a_secret_key_raises_rather_than_returning_none(no_secret_key):
+    # Distinct from an actually-invalid token (which correctly returns
+    # None, see below): a misconfigured app should fail loudly here, not
+    # silently reject every login as if the credentials were wrong.
+    with pytest.raises(RuntimeError, match="SECRET_KEY is not set"):
+        decode_access_token("irrelevant-any-string-would-do")
 
 
 def test_decode_access_token_rejects_expired_token_and_invalid_token():

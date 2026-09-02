@@ -18,6 +18,25 @@ pip install jetio
 
 ---
 
+## Configuration
+
+If your app uses JWT auth (`create_access_token`/`decode_access_token`,
+which is what [jetio-auth](https://pypi.org/project/jetio-auth/) builds
+on), set `SECRET_KEY` before issuing or validating any token. There's no
+default: a fixed value shipped in jetio's own published source would be
+public, not secret, and anyone could forge a valid token for any user.
+Apps that don't use JWT auth (plain CRUD APIs, your own auth scheme) don't
+need this set at all.
+
+```bash
+export SECRET_KEY=$(openssl rand -hex 32)
+```
+
+See `jetio.config.Settings` for the rest of the available configuration
+(database URL, mail settings, etc.).
+
+---
+
 ## Key Features
 
 * **Model-Driven APIs:** Use standard SQLAlchemy models as your single source of truth for your database, validation, and API serialization.
