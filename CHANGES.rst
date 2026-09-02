@@ -9,6 +9,21 @@ and this project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0
 
 ---
 
+Version 2.0.0
+========================
+
+Security / Breaking Changes
+----------------------------
+
+*   **`SECRET_KEY` no longer has a hardcoded default**:
+    `Settings.SECRET_KEY` previously defaulted to a fixed value hardcoded in this package's own published source. Left unoverridden, that's not a weak secret, it's a *known* one -- anyone reading jetio's source could sign a fully valid JWT for any user, including an admin, with zero credentials. Verified exploitable end-to-end against a real app before this fix.
+
+    `SECRET_KEY` is now `Optional[str] = None` at the `Settings` level rather than a required field, since `jetio.config` is imported unconditionally by the whole package -- making it required broke even the bare `Jetio()` quickstart, which never touches auth. Enforcement moved to where the actual risk lives: `create_access_token()`/`decode_access_token()` (`jetio/auth.py`) now raise a clear `RuntimeError` the first time either is called without a real secret configured.
+
+    **Breaking**: any app that never explicitly set `SECRET_KEY` and uses JWT auth (directly, or via `jetio-auth`) will start raising `RuntimeError` on login/token calls after upgrading, instead of silently working with the old public default. Set a real `SECRET_KEY` environment variable (e.g. `openssl rand -hex 32`) before upgrading if your app uses JWT auth. Apps that don't use JWT auth at all are unaffected.
+
+---
+
 Version 1.2.3
 ========================
 
