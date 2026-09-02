@@ -13,6 +13,15 @@ from pathlib import Path
 import httpx
 import pytest
 
+# SECRET_KEY is required (no hardcoded default -- see GH issue #9). This
+# process doesn't import jetio itself, but run_scenario_app() below copies
+# this process's environ into each launched subprocess (`env =
+# dict(os.environ)`), and that subprocess DOES import jetio -- so it needs
+# to be set here too, before that copy happens. setdefault(), not direct
+# assignment, so a real value exported in the environment (e.g. by CI)
+# still wins.
+os.environ.setdefault("SECRET_KEY", "test-only-secret-not-for-real-use-4f8a2c9e")
+
 APPS_DIR = Path(__file__).parent / "apps"
 REPO_ROOT = Path(__file__).parent.parent
 

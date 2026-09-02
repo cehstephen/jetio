@@ -1,3 +1,12 @@
+import os
+
+# SECRET_KEY is required (no hardcoded default -- see GH issue #9), so it
+# must be set before `from jetio import ...` below triggers jetio.config's
+# module-level Settings() construction. setdefault(), not direct
+# assignment, so a real value exported in the environment (e.g. by CI)
+# still wins.
+os.environ.setdefault("SECRET_KEY", "test-only-secret-not-for-real-use-4f8a2c9e")
+
 import pytest
 import asyncio
 import pytest_asyncio

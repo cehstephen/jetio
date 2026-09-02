@@ -99,6 +99,24 @@ def get_password_hash(password: str) -> str:
 ALGORITHM = "HS256" # JWT signing algorithm
 
 
+def _require_secret_key() -> str:
+    """settings.SECRET_KEY has no default (see jetio.config.Settings) --
+    a fixed value shipped in this package's own published source would be
+    public, not secret. Checked here, at the point a token is actually
+    signed/verified, rather than at import time: most of the framework
+    (CRUD-only apps, anything not using JWT auth) never needs this set at
+    all, so failing at `import jetio` would block apps that were never
+    going to call these functions in the first place."""
+    if not settings.SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY is not set. create_access_token()/decode_access_token() "
+            "need a real secret to sign/verify JWTs -- set the SECRET_KEY "
+            "environment variable (e.g. `openssl rand -hex 32`) or a .env file "
+            "before issuing or validating tokens."
+        )
+    return settings.SECRET_KEY
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a signed JWT access token.
 
@@ -135,7 +153,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.now(timezone.utc) + timedelta(minutes=30)
     
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _require_secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -164,7 +182,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     """
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _require_secret_key(), algorithms=[ALGORITHM])
         return payload
     except jwt.PyJWTError:
         return None
